@@ -1,4 +1,3 @@
-
 SparseArray.prototype.getLength = getLength;
 SparseArray.prototype.setLength = setLength;
 SparseArray.prototype.getDefaultSize = getDefaultSize;

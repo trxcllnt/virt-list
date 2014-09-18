@@ -74,17 +74,21 @@
     
     var sparse = new SparseArray(),
         boxes = [],
+        boxWidth = 90, boxMargin = 5,
         // movies = getMovies(),
         movies = getMovies2(),
         // movies = getMovies3(),
         // movies = getColors(),
-        boxWidth = 90, boxMargin = 5;
+        movieSizes = movies.map(function(movie) {
+            return boxWidth;
+            // return Math.round((Math.random() * 200) + boxWidth)
+        });
     
     sparse.setGap(boxMargin * 2);
     
     for(var i = -1; ++i < movies.length;) {
         sparse.insert(i);
-        sparse.setItemSize(i, boxWidth);
+        sparse.setItemSize(i, movieSizes[i]);
         // sparse.setItemSize(i, Math.round(boxWidth * Math.random()));
     }
     
@@ -152,6 +156,9 @@
                             e.angle = 0;
                         }
                         
+                        x.velocity = e.velocity;
+                        x.angle = e.angle;
+                        
                         return x;
                     })
                     .doAction(function(x) {
@@ -163,19 +170,18 @@
                             (a.prev = a.index) && false;
                     })
                     .flatMapLatest(function(x) {
-                        var index = x.index,
-                            boxSpace = (boxWidth + (boxMargin * 2));
+                        var index = x.index;
                         return Rx.Observable
                             .forkJoin(boxes.map(function(box, i) {
-                                return box.load(movies[(i + index) % movies.length]);
+                                return box.load(movies[i + index]);
                             }))
                             .concat(Rx.Observable
                                 .forkJoin(boxes.map(function(box, i) {
-                                    return box.update();
+                                    return box.update(movieSizes[i + index]);
                             })))
                             .defaultIfEmpty()
                             .select(function() {
-                                return (x.realX = x.virtualX % boxSpace) * -1;
+                                return (x.realX = x.virtualX - sparse.start(index)) * -1;
                             });
                     });
             })
@@ -210,11 +216,11 @@
                     .takeUntil($(window).upAsObservable())
                     .scanVelocity()
                     .throttle(0, Rx.Scheduler.requestAnimationFrame)
-                    .largestOfLast(10, function(xs) {
-                        return xs.reduce(function(x, y) {
-                            return x.velocity > y.velocity ? x : y;
-                        });
-                    })
+                    // .largestOfLast(10, function(xs) {
+                    //     return xs.reduce(function(x, y) {
+                    //         return x.velocity > y.velocity ? x : y;
+                    //     });
+                    // })
                     .concatFriction(0.08)
                     .scan(function(a, b) {
                         b.deltaX = b.x - a.x;
@@ -264,11 +270,15 @@
         });
     }
     
-    BoxArt.prototype.update = function() {
+    BoxArt.prototype.update = function(size) {
         var self = this;
         return Rx.Observable.defer(function() {
-            var bottom = self.bottom.css('z-index', 1),
+            var img = self.img,
+                bottom = self.bottom.css('z-index', 1),
                 top = self.top.css('z-index', 0);
+            img.outerWidth(size);
+            top.outerWidth(size);
+            bottom.outerWidth(size);
             self.top = bottom;
             self.bottom = top;
             return Rx.Observable.empty();
