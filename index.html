@@ -68,12 +68,13 @@
     <script type="text/javascript" src="js/sparse-array.js"></script>
     <script type="text/javascript">
     
-    initLargestOfLast(Rx);
     initScanVelocity(Rx);
     initConcatFriction(Rx);
     
     var sparse = new SparseArray(),
-        boxes = [],
+        side = "top",
+        topBoxes = [],
+        bottomBoxes = [],
         boxWidth = 90, boxMargin = 5,
         // movies = getMovies(),
         movies = getMovies2(),
@@ -94,35 +95,41 @@
     
     console.log(sparse.toString());
     
-    // movies = getColors();
-    
     $(function() {
-        var container = document.getElementsByClassName("inner")[0],
+        var topContainer = document.getElementsByClassName("top")[0],
+            bottomContainer = document.getElementsByClassName("bottom")[0],
             listPositionInfo = {virtualX:0,realX:0,prev:-1};
         $(window)
             .resizeAsObservable()
             .throttle(100, Rx.Scheduler.requestAnimationFrame)
             .startWith(null)
             .doAction(function() {
-                var box, rect = container.getBoundingClientRect(),
-                    i = boxes.length - 1,
+                var box,
+                    rect = topContainer.getBoundingClientRect(),
+                    i = topBoxes.length - 1,
                     n = 1 + (rect.width / boxWidth) | 0;
                 
                 while(++i < n) {
-                    boxes[i] = box = new BoxArt();
-                    container.appendChild(box.img[0]);
+                    topBoxes[i] = box = new BoxArt();
+                    topContainer.appendChild(box.div[0]);
+                    bottomBoxes[i] = box = new BoxArt();
+                    bottomContainer.appendChild(box.div[0]);
                 }
                 
-                i = boxes.length + 1;
+                i = topBoxes.length + 1;
                 while(--i > n) {
-                    box = boxes.pop().img[0];
-                    if(container.contains(box)) {
-                        container.removeChild(box);
+                    box = topBoxes.pop().div[0];
+                    if(topContainer.contains(box)) {
+                        topContainer.removeChild(box);
+                    }
+                    box = bottomBoxes.pop().div[0];
+                    if(bottomContainer.contains(box)) {
+                        bottomContainer.removeChild(box);
                     }
                 }
             })
             .flatMapLatest(function() {
-                return getScrollObs(container)
+                return getScrollObs([topContainer, bottomContainer])
                     .startWith({deltaX:0, deltaY:0})
                     // .startWith({deltaX:sparse.end(sparse.getLength() - 1) - 200, deltaY:0})
                     .scan(listPositionInfo, function(x, e) {
@@ -162,7 +169,8 @@
                         return x;
                     })
                     .doAction(function(x) {
-                        translateContainer(x.realX * -1);
+                        translateContainer(topContainer, x.realX * -1);
+                        translateContainer(bottomContainer, x.realX * -1);
                     })
                     .distinctUntilChanged(null, function(b, a) {
                         return a.prev === a.index ?
@@ -170,32 +178,37 @@
                             (a.prev = a.index) && false;
                     })
                     .flatMapLatest(function(x) {
-                        var index = x.index;
+                        var index = x.index,
+                            videos = side === "top" ? topBoxes : bottomBoxes;
                         return Rx.Observable
-                            .forkJoin(boxes.map(function(box, i) {
+                            .forkJoin(videos.map(function(box, i) {
                                 return box.load(movies[i + index]);
                             }))
-                            .concat(Rx.Observable
-                                .forkJoin(boxes.map(function(box, i) {
-                                    return box.update(movieSizes[i + index]);
-                            })))
+                            .doAction(function() {
+                                topContainer.style['z-index'] = Number(side === "top");
+                                bottomContainer.style['z-index'] = Number(side === "bottom");
+                                side = side === "bottom" ? "top" : "bottom";
+                            })
                             .defaultIfEmpty()
                             .select(function() {
                                 return (x.realX = x.virtualX - sparse.start(index)) * -1;
                             });
                     });
             })
-            .subscribe(translateContainer);
+            .subscribe(function(x) {
+                translateContainer(topContainer, x);
+                translateContainer(bottomContainer, x);
+            });
         
-        function translateContainer(x) {
+        function translateContainer(container, x) {
             var style = container.style;
             style["transform"] =
             style["webkitTransform"] = "translate3d("+x+"px, 0, 0)";
         }
     });
     
-    function getScrollObs(container) {
-        return $(container)
+    function getScrollObs(containers) {
+        return $(containers)
             .pressAsObservable()
             .cancelEvent()
             .flatMapLatest(function(x) {
@@ -215,12 +228,7 @@
                     })
                     .takeUntil($(window).upAsObservable())
                     .scanVelocity()
-                    .throttle(0, Rx.Scheduler.requestAnimationFrame)
-                    // .largestOfLast(10, function(xs) {
-                    //     return xs.reduce(function(x, y) {
-                    //         return x.velocity > y.velocity ? x : y;
-                    //     });
-                    // })
+                    // .throttle(0, Rx.Scheduler.requestAnimationFrame)
                     .concatFriction(0.08)
                     .scan(function(a, b) {
                         b.deltaX = b.x - a.x;
@@ -252,45 +260,29 @@
     }
     
     function BoxArt() {
-        this.img = $("<div class='box-art'></div>");
-        this.top = $("<img></img>").css('z-index', 1);
-        this.bottom = $("<img></img>");
-        this.img.append(this.bottom, this.top);
+        this.div = $("<div class='box-art'></div>");
+        this.img = $("<img></img>");
+        this.div.append(this.img);
     }
     
     BoxArt.prototype.load = function(url) {
         var self = this;
         return Rx.Observable.defer(function() {
-            var obs = self.bottom.loadAsObservable()
+            var obs = self.img.loadAsObservable()
                 .take(1)
                 .publishLast();
             obs.connect();
-            self.bottom.attr("src", url);
+            self.img.attr("src", url);
             return obs;
         });
     }
     
-    BoxArt.prototype.update = function(size) {
-        var self = this;
-        return Rx.Observable.defer(function() {
-            var img = self.img,
-                bottom = self.bottom.css('z-index', 1),
-                top = self.top.css('z-index', 0);
-            img.outerWidth(size);
-            top.outerWidth(size);
-            bottom.outerWidth(size);
-            self.top = bottom;
-            self.bottom = top;
-            return Rx.Observable.empty();
-        });
-    }
-    
     function BoxColor() {
-        this.img = $("<div class='box-art border'></div>").css('border-width', 10);
+        this.div = $("<div class='box-art border'></div>").css('border-width', 10);
     }
     
     BoxColor.prototype.load = function(color) {
-        this.img.css('border-color', color);
+        this.div.css('border-color', color);
         return Rx.Observable.empty();
     }
     
@@ -373,7 +365,9 @@
                 var deceleration = Math.abs(u * 9.8);
                 
                 return Rx.Observable.create(function(observer) {
-                    return Rx.Scheduler.requestAnimationFrame.scheduleRecursive(function(reschedule) {
+                    // var scheduler = Rx.Scheduler.timeout;
+                    var scheduler = Rx.Scheduler.requestAnimationFrame;
+                    return scheduler.scheduleRecursive(function(reschedule) {
                         observer.onNext(0);
                         reschedule();
                     });
@@ -407,7 +401,8 @@
 </head>
 <body>
     <div class="outer">
-        <div class="inner"></div>
+        <div class="inner top"></div>
+        <div class="inner bottom"></div>
     </div>
 </body>
 </html>
