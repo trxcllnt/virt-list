@@ -257,7 +257,7 @@ function insert(index) {
         }
     }
 
-    this._pendingLength = Math.max(length + 1, index + 1);
+    this._pendingLength = Math.max(this._length, index + 1);
 
     if(!this.inserts) {
         this.inserts = [];
